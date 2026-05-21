@@ -1,0 +1,101 @@
+<!-- redirect.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rebloom — подтверждение</title>
+  <style>
+    body {
+      font-family: -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #f0f4e8;
+      color: #242823;
+    }
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      text-align: center;
+      max-width: 360px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    p  { color: #888; font-size: 15px; margin-bottom: 24px; }
+    .btn {
+      display: inline-block;
+      background: #4A6646;
+      color: white;
+      padding: 14px 32px;
+      border-radius: 30px;
+      text-decoration: none;
+      font-size: 16px;
+    }
+    .status { font-size: 13px; color: #aaa; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🌿 Rebloom</h1>
+    <p id="message">Подтверждаем ваш email…</p>
+    <a id="openBtn" class="btn" style="display:none">Открыть приложение</a>
+    <div class="status" id="status"></div>
+  </div>
+
+  <script>
+    // Supabase после verify делает редирект сюда.
+    // Параметры могут быть в hash (#) или в query (?).
+    // Для email_change они будут в hash после редиректа.
+
+    function getParams() {
+      // Пробуем fragment (hash)
+      const hash = window.location.hash.substring(1);
+      if (hash) return new URLSearchParams(hash);
+      // Пробуем query string
+      return new URLSearchParams(window.location.search);
+    }
+
+    const params = getParams();
+    const type         = params.get('type');
+    const accessToken  = params.get('access_token');
+    const refreshToken = params.get('refresh_token') || '';
+    const errorDesc    = params.get('error_description');
+
+    const message = document.getElementById('message');
+    const btn     = document.getElementById('openBtn');
+    const status  = document.getElementById('status');
+
+    if (errorDesc) {
+      message.textContent = 'Ошибка: ' + decodeURIComponent(errorDesc);
+      status.textContent  = 'Попробуйте запросить ссылку повторно.';
+    } else if (accessToken) {
+      // Собираем deep link для приложения — передаём токены в fragment
+      const deepLink = 'rebloom://auth-callback#' +
+        'access_token='  + encodeURIComponent(accessToken) +
+        '&refresh_token=' + encodeURIComponent(refreshToken) +
+        '&type='          + encodeURIComponent(type || '');
+
+      if (type === 'recovery') {
+        message.textContent = 'Ссылка для смены пароля готова.';
+      } else {
+        message.textContent = '✅ Email подтверждён!';
+      }
+
+      btn.href           = deepLink;
+      btn.style.display  = 'inline-block';
+      status.textContent = 'Нажмите кнопку, чтобы вернуться в приложение.';
+
+      // Автоматический редирект через 1 секунду
+      setTimeout(() => { window.location.href = deepLink; }, 1000);
+    } else {
+      message.textContent = 'Проверяем ссылку…';
+      status.textContent  = 'Если ничего не происходит — откройте приложение вручную.';
+    }
+  </script>
+</body>
+</html>
