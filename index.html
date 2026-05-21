@@ -1,101 +1,218 @@
-<!-- redirect.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rebloom — подтверждение</title>
+  <title>Rebloom</title>
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, sans-serif;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
-      margin: 0;
       background: #f0f4e8;
       color: #242823;
+      padding: 16px;
     }
     .card {
       background: white;
       border-radius: 20px;
-      padding: 40px;
+      padding: 40px 32px;
       text-align: center;
-      max-width: 360px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
     }
-    h1 { font-size: 24px; margin-bottom: 8px; }
-    p  { color: #888; font-size: 15px; margin-bottom: 24px; }
+    h1 { font-size: 26px; margin-bottom: 8px; }
+    .subtitle { color: #888; font-size: 15px; margin-bottom: 28px; }
+    input {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1.5px solid #e0e0e0;
+      font-size: 16px;
+      margin-bottom: 12px;
+      outline: none;
+      background: #f7f9f3;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: #4A6646; }
     .btn {
-      display: inline-block;
+      width: 100%;
       background: #4A6646;
       color: white;
-      padding: 14px 32px;
+      padding: 15px;
       border-radius: 30px;
-      text-decoration: none;
+      border: none;
       font-size: 16px;
+      cursor: pointer;
+      margin-top: 4px;
+      transition: opacity 0.2s;
     }
-    .status { font-size: 13px; color: #aaa; margin-top: 16px; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-outline {
+      width: 100%;
+      background: transparent;
+      color: #4A6646;
+      padding: 14px;
+      border-radius: 30px;
+      border: 1.5px solid #4A6646;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 10px;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .status { margin-top: 16px; font-size: 14px; color: #888; min-height: 20px; }
+    .status.error { color: #c0392b; }
+    .status.success { color: #27ae60; }
+    #passwordForm, #successBlock, #errorBlock, #emailConfirmBlock { display: none; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>🌿 Rebloom</h1>
-    <p id="message">Подтверждаем ваш email…</p>
-    <a id="openBtn" class="btn" style="display:none">Открыть приложение</a>
-    <div class="status" id="status"></div>
+<div class="card">
+  <h1>🌿 Rebloom</h1>
+
+  <div id="loadingBlock">
+    <p class="subtitle">Проверяем ссылку…</p>
   </div>
 
-  <script>
-    // Supabase после verify делает редирект сюда.
-    // Параметры могут быть в hash (#) или в query (?).
-    // Для email_change они будут в hash после редиректа.
+  <div id="passwordForm">
+    <p class="subtitle">Придумайте новый пароль</p>
+    <input type="password" id="newPassword" placeholder="Новый пароль" />
+    <input type="password" id="confirmPassword" placeholder="Повторите пароль" />
+    <button class="btn" id="saveBtn" onclick="savePassword()">Сохранить пароль</button>
+    <div class="status" id="formStatus"></div>
+  </div>
 
-    function getParams() {
-      // Пробуем fragment (hash)
-      const hash = window.location.hash.substring(1);
-      if (hash) return new URLSearchParams(hash);
-      // Пробуем query string
-      return new URLSearchParams(window.location.search);
-    }
+  <div id="emailConfirmBlock">
+    <p class="subtitle">✅ Email успешно подтверждён!</p>
+    <a class="btn-outline" id="openAppBtn" href="#">Открыть приложение</a>
+    <div class="status">Или просто закройте эту вкладку.</div>
+  </div>
 
+  <div id="successBlock">
+    <p class="subtitle">✅ Пароль успешно изменён!</p>
+    <a class="btn-outline" id="openAppAfterReset" href="#">Открыть приложение</a>
+    <div class="status">Теперь вы можете войти с новым паролем.</div>
+  </div>
+
+  <div id="errorBlock">
+    <p class="subtitle" id="errorText">Ссылка недействительна или устарела.</p>
+    <div class="status">Попробуйте запросить новую ссылку в приложении.</div>
+  </div>
+</div>
+
+<script>
+  const FUNCTION_URL = 'https://abmevuxflrsfwurtswli.supabase.co';
+
+  let accessToken = null;
+  let refreshToken = null;
+
+  function show(id) {
+    ['loadingBlock','passwordForm','emailConfirmBlock','successBlock','errorBlock']
+      .forEach(b => document.getElementById(b).style.display = b === id ? 'block' : 'none');
+  }
+
+  function getParams() {
+    const hash = window.location.hash.substring(1);
+    if (hash) return new URLSearchParams(hash);
+    return new URLSearchParams(window.location.search);
+  }
+
+  function buildDeepLink(token, refresh, type) {
+    return 'rebloom://auth-callback#' +
+      'access_token='   + encodeURIComponent(token) +
+      '&refresh_token=' + encodeURIComponent(refresh) +
+      '&type='          + encodeURIComponent(type);
+  }
+
+  function init() {
     const params = getParams();
-    const type         = params.get('type');
-    const accessToken  = params.get('access_token');
-    const refreshToken = params.get('refresh_token') || '';
-    const errorDesc    = params.get('error_description');
+    const type   = params.get('type');
+    const token  = params.get('access_token');
+    const refresh = params.get('refresh_token') || '';
+    const error  = params.get('error_description');
 
-    const message = document.getElementById('message');
-    const btn     = document.getElementById('openBtn');
-    const status  = document.getElementById('status');
-
-    if (errorDesc) {
-      message.textContent = 'Ошибка: ' + decodeURIComponent(errorDesc);
-      status.textContent  = 'Попробуйте запросить ссылку повторно.';
-    } else if (accessToken) {
-      // Собираем deep link для приложения — передаём токены в fragment
-      const deepLink = 'rebloom://auth-callback#' +
-        'access_token='  + encodeURIComponent(accessToken) +
-        '&refresh_token=' + encodeURIComponent(refreshToken) +
-        '&type='          + encodeURIComponent(type || '');
-
-      if (type === 'recovery') {
-        message.textContent = 'Ссылка для смены пароля готова.';
-      } else {
-        message.textContent = '✅ Email подтверждён!';
-      }
-
-      btn.href           = deepLink;
-      btn.style.display  = 'inline-block';
-      status.textContent = 'Нажмите кнопку, чтобы вернуться в приложение.';
-
-      // Автоматический редирект через 1 секунду
-      setTimeout(() => { window.location.href = deepLink; }, 1000);
-    } else {
-      message.textContent = 'Проверяем ссылку…';
-      status.textContent  = 'Если ничего не происходит — откройте приложение вручную.';
+    if (error) {
+      document.getElementById('errorText').textContent =
+        'Ошибка: ' + decodeURIComponent(error);
+      show('errorBlock');
+      return;
     }
-  </script>
+
+    if (!token) {
+      show('errorBlock');
+      return;
+    }
+
+    accessToken  = token;
+    refreshToken = refresh;
+
+    if (type === 'recovery') {
+      show('passwordForm');
+    } else if (type === 'email_change' || type === 'signup') {
+      const deepLink = buildDeepLink(token, refresh, type);
+      document.getElementById('openAppBtn').href = deepLink;
+      show('emailConfirmBlock');
+      setTimeout(() => { window.location.href = deepLink; }, 800);
+    } else {
+      show('errorBlock');
+    }
+  }
+
+  async function savePassword() {
+    const password = document.getElementById('newPassword').value;
+    const confirm  = document.getElementById('confirmPassword').value;
+    const status   = document.getElementById('formStatus');
+    const btn      = document.getElementById('saveBtn');
+
+    if (password.length < 6) {
+      status.className = 'status error';
+      status.textContent = 'Минимум 6 символов';
+      return;
+    }
+    if (password !== confirm) {
+      status.className = 'status error';
+      status.textContent = 'Пароли не совпадают';
+      return;
+    }
+
+    btn.disabled = true;
+    status.className = 'status';
+    status.textContent = 'Сохраняем…';
+
+    try {
+      const response = await fetch(FUNCTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password: password,
+          access_token: accessToken
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        document.getElementById('openAppAfterReset').href =
+          'rebloom://auth-callback#type=password_changed';
+        show('successBlock');
+      } else {
+        status.className = 'status error';
+        status.textContent = data.error || 'Ошибка. Попробуйте ещё раз.';
+        btn.disabled = false;
+      }
+    } catch (e) {
+      status.className = 'status error';
+      status.textContent = 'Ошибка сети. Проверьте подключение.';
+      btn.disabled = false;
+    }
+  }
+
+  init();
+</script>
 </body>
 </html>
